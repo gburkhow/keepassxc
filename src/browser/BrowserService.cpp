@@ -24,6 +24,7 @@
 #include "BrowserHost.h"
 #include "BrowserMessageBuilder.h"
 #include "BrowserSettings.h"
+#include "core/EntryAttributes.h"
 #include "core/Tools.h"
 #include "gui/MainWindow.h"
 #include "gui/MessageBox.h"
@@ -85,6 +86,10 @@ BrowserService::BrowserService()
     connect(getMainWindow(), &MainWindow::databaseUnlocked, this, &BrowserService::databaseUnlocked);
     connect(getMainWindow(), &MainWindow::databaseLocked, this, &BrowserService::databaseLocked);
     connect(getMainWindow(), &MainWindow::activeDatabaseChanged, this, &BrowserService::activeDatabaseChanged);
+    connect(getMainWindow(),
+            &MainWindow::databaseUnlockDialogFinished,
+            this,
+            &BrowserService::handleDatabaseUnlockDialogFinished);
 
     setEnabled(browserSettings()->isEnabled());
 }
@@ -597,7 +602,8 @@ QString BrowserService::storeKey(const QString& key)
             return {};
         }
 
-        contains = db->metadata()->customData()->contains(CustomData::BrowserKeyPrefix + id);
+        contains =
+            db->metadata()->customData()->contains(CustomData::getKeyWithPrefix(CustomData::BrowserKeyPrefix, id));
         if (contains) {
             dialogResult = MessageBox::warning(m_currentDatabaseWidget,
                                                tr("KeePassXC - Overwrite existing key?"),
@@ -610,8 +616,8 @@ QString BrowserService::storeKey(const QString& key)
     } while (contains && dialogResult == MessageBox::Cancel);
 
     hideWindow();
-    db->metadata()->customData()->set(CustomData::BrowserKeyPrefix + id, key);
-    db->metadata()->customData()->set(QString("%1_%2").arg(CustomData::Created, id),
+    db->metadata()->customData()->set(CustomData::getKeyWithPrefix(CustomData::BrowserKeyPrefix, id), key);
+    db->metadata()->customData()->set(CustomData::getKeyWithPrefix(CustomData::Created, id),
                                       QLocale::system().toString(Clock::currentDateTime(), QLocale::ShortFormat));
     return id;
 }
@@ -623,7 +629,7 @@ QString BrowserService::getKey(const QString& id)
         return {};
     }
 
-    return db->metadata()->customData()->value(CustomData::BrowserKeyPrefix + id);
+    return db->metadata()->customData()->value(CustomData::getKeyWithPrefix(CustomData::BrowserKeyPrefix, id));
 }
 
 #ifdef WITH_XC_BROWSER_PASSKEYS
@@ -763,9 +769,9 @@ QJsonObject BrowserService::showPasskeysAuthenticationPrompt(const QJsonObject& 
             return getPasskeyError(ERROR_PASSKEYS_UNKNOWN_ERROR);
         }
 
-        const auto privateKeyPem = selectedEntry->attributes()->value(BrowserPasskeys::KPEX_PASSKEY_PRIVATE_KEY_PEM);
+        const auto privateKeyPem = selectedEntry->attributes()->value(EntryAttributes::KPEX_PASSKEY_PRIVATE_KEY_PEM);
         const auto credentialId = passkeyUtils()->getCredentialIdFromEntry(selectedEntry);
-        const auto userHandle = selectedEntry->attributes()->value(BrowserPasskeys::KPEX_PASSKEY_USER_HANDLE);
+        const auto userHandle = selectedEntry->attributes()->value(EntryAttributes::KPEX_PASSKEY_USER_HANDLE);
 
         auto publicKeyCredential =
             browserPasskeys()->buildGetPublicKeyCredential(assertionOptions, credentialId, userHandle, privateKeyPem);
@@ -843,11 +849,11 @@ void BrowserService::addPasskeyToEntry(Entry* entry,
 
     entry->beginUpdate();
 
-    entry->attributes()->set(BrowserPasskeys::KPEX_PASSKEY_USERNAME, username);
-    entry->attributes()->set(BrowserPasskeys::KPEX_PASSKEY_CREDENTIAL_ID, credentialId, true);
-    entry->attributes()->set(BrowserPasskeys::KPEX_PASSKEY_PRIVATE_KEY_PEM, privateKey, true);
-    entry->attributes()->set(BrowserPasskeys::KPEX_PASSKEY_RELYING_PARTY, rpId);
-    entry->attributes()->set(BrowserPasskeys::KPEX_PASSKEY_USER_HANDLE, userHandle, true);
+    entry->attributes()->set(EntryAttributes::KPEX_PASSKEY_USERNAME, username);
+    entry->attributes()->set(EntryAttributes::KPEX_PASSKEY_CREDENTIAL_ID, credentialId, true);
+    entry->attributes()->set(EntryAttributes::KPEX_PASSKEY_PRIVATE_KEY_PEM, privateKey, true);
+    entry->attributes()->set(EntryAttributes::KPEX_PASSKEY_RELYING_PARTY, rpId);
+    entry->attributes()->set(EntryAttributes::KPEX_PASSKEY_USER_HANDLE, userHandle, true);
     entry->addTag(tr("Passkey"));
 
     entry->endUpdate();
@@ -1042,7 +1048,7 @@ QList<Entry*> BrowserService::searchEntries(const QSharedPointer<Database>& db,
 
 #ifdef WITH_XC_BROWSER_PASSKEYS
             // With Passkeys, check for the Relying Party instead of URL
-            if (passkey && entry->attributes()->value(BrowserPasskeys::KPEX_PASSKEY_RELYING_PARTY) != siteUrl) {
+            if (passkey && entry->attributes()->value(EntryAttributes::KPEX_PASSKEY_RELYING_PARTY) != siteUrl) {
                 continue;
             }
 #endif
@@ -1065,7 +1071,8 @@ QList<Entry*> BrowserService::searchEntries(const QString& siteUrl,
     // Check if database is connected with KeePassXC-Browser. If so, return browser key (otherwise empty)
     auto databaseConnected = [&](const QSharedPointer<Database>& db) {
         for (const StringPair& keyPair : keyList) {
-            QString key = db->metadata()->customData()->value(CustomData::BrowserKeyPrefix + keyPair.first);
+            const auto key = db->metadata()->customData()->value(
+                CustomData::getKeyWithPrefix(CustomData::BrowserKeyPrefix, keyPair.first));
             if (!key.isEmpty() && keyPair.second == key) {
                 return keyPair.first;
             }
@@ -1384,7 +1391,7 @@ QList<Entry*> BrowserService::getPasskeyEntries(const QString& rpId, const Strin
 {
     QList<Entry*> entries;
     for (const auto& entry : searchEntries(rpId, "", keyList, true)) {
-        if (entry->hasPasskey() && entry->attributes()->value(BrowserPasskeys::KPEX_PASSKEY_RELYING_PARTY) == rpId) {
+        if (entry->hasPasskey() && entry->attributes()->value(EntryAttributes::KPEX_PASSKEY_RELYING_PARTY) == rpId) {
             entries << entry;
         }
     }
@@ -1399,8 +1406,8 @@ QList<Entry*> BrowserService::getPasskeyEntriesWithUserHandle(const QString& rpI
 {
     QList<Entry*> entries;
     for (const auto& entry : searchEntries(rpId, "", keyList, true)) {
-        if (entry->hasPasskey() && entry->attributes()->value(BrowserPasskeys::KPEX_PASSKEY_RELYING_PARTY) == rpId
-            && entry->attributes()->value(BrowserPasskeys::KPEX_PASSKEY_USER_HANDLE) == userId) {
+        if (entry->hasPasskey() && entry->attributes()->value(EntryAttributes::KPEX_PASSKEY_RELYING_PARTY) == rpId
+            && entry->attributes()->value(EntryAttributes::KPEX_PASSKEY_USER_HANDLE) == userId) {
             entries << entry;
         }
     }
@@ -1425,7 +1432,7 @@ QList<Entry*> BrowserService::getPasskeyAllowedEntries(const QJsonObject& assert
         // See: https://w3c.github.io/webauthn/#dom-authenticatorassertionresponse-userhandle
         if (allowedCredentials.contains(passkeyUtils()->getCredentialIdFromEntry(entry))
             || (allowedCredentials.isEmpty()
-                && entry->attributes()->hasKey(BrowserPasskeys::KPEX_PASSKEY_USER_HANDLE))) {
+                && entry->attributes()->hasKey(EntryAttributes::KPEX_PASSKEY_USER_HANDLE))) {
             entries << entry;
         }
     }
@@ -1675,6 +1682,15 @@ void BrowserService::activeDatabaseChanged(DatabaseWidget* dbWidget)
     }
 
     m_currentDatabaseWidget = dbWidget;
+}
+
+void BrowserService::handleDatabaseUnlockDialogFinished(bool accepted, DatabaseWidget* dbWidget)
+{
+    // User canceled the database open dialog
+    if (dbWidget && !accepted && m_bringToFrontRequested) {
+        m_bringToFrontRequested = false;
+        hideWindow();
+    }
 }
 
 void BrowserService::processClientMessage(QLocalSocket* socket, const QJsonObject& message)

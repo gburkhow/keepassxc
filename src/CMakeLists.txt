@@ -90,11 +90,13 @@ set(core_SOURCES
         format/OpVaultReaderAttachments.cpp
         format/OpVaultReaderBandEntry.cpp
         format/OpVaultReaderSections.cpp
+        format/ProtonPassReader.cpp
         keys/CompositeKey.cpp
         keys/FileKey.cpp
         keys/PasswordKey.cpp
         keys/ChallengeResponseKey.cpp
         streams/HashedBlockStream.cpp
+        streams/HashingStream.cpp
         streams/HmacBlockStream.cpp
         streams/LayeredStream.cpp
         streams/qtiocompressor.cpp
@@ -156,6 +158,8 @@ set(gui_SOURCES
         gui/entry/EntryAttachmentsModel.cpp
         gui/entry/EntryAttachmentsWidget.cpp
         gui/entry/EntryAttributesModel.cpp
+        gui/entry/NewEntryAttachmentsDialog.cpp
+        gui/entry/PreviewEntryAttachmentsDialog.cpp
         gui/entry/EntryHistoryModel.cpp
         gui/entry/EntryModel.cpp
         gui/entry/EntryView.cpp
@@ -386,7 +390,7 @@ target_link_libraries(keepassxc_gui
         ${sshagent_LIB})
 
 if(APPLE)
-    target_link_libraries(keepassxc_gui "-framework Foundation -framework AppKit -framework Carbon -framework Security -framework LocalAuthentication")
+    target_link_libraries(keepassxc_gui "-framework Foundation -framework AppKit -framework Carbon -framework Security -framework LocalAuthentication -framework ScreenCaptureKit")
     if(Qt5MacExtras_FOUND)
         target_link_libraries(keepassxc_gui Qt5::MacExtras)
     endif()

@@ -72,7 +72,6 @@ DatabaseOpenWidget::DatabaseOpenWidget(QWidget* parent)
     font.setPointSize(font.pointSize() + 4);
     font.setBold(true);
     m_ui->labelHeadline->setFont(font);
-    m_ui->labelHeadline->setText(tr("Unlock KeePassXC Database"));
 
     m_ui->quickUnlockButton->setFont(font);
     m_ui->quickUnlockButton->setIcon(
@@ -103,7 +102,7 @@ DatabaseOpenWidget::DatabaseOpenWidget(QWidget* parent)
     m_ui->hardwareKeyProgress->setSizePolicy(sp);
 
 #ifdef WITH_XC_YUBIKEY
-    connect(m_deviceListener, SIGNAL(devicePlugged(bool, void*, void*)), this, SLOT(pollHardwareKey()));
+    connect(m_deviceListener, &DeviceListener::devicePlugged, this, [this] { pollHardwareKey(false, 500); });
     connect(YubiKey::instance(), SIGNAL(detectComplete(bool)), SLOT(hardwareKeyResponse(bool)), Qt::QueuedConnection);
 
     connect(YubiKey::instance(), &YubiKey::userInteractionRequest, this, [this] {
@@ -141,7 +140,12 @@ void DatabaseOpenWidget::toggleHardwareKeyComponent(bool state)
     m_ui->hardwareKeyProgress->setVisible(false);
     m_ui->hardwareKeyComponent->setVisible(state);
     m_ui->hardwareKeyCombo->setVisible(state && m_ui->hardwareKeyCombo->count() != 1);
+
     m_ui->noHardwareKeysFoundLabel->setVisible(!state && m_manualHardwareKeyRefresh);
+    m_ui->noHardwareKeysFoundLabel->setText(YubiKey::instance()->connectedKeys() > 0
+                                                ? tr("Hardware keys found, but no slots are configured.")
+                                                : tr("No hardware keys found."));
+
     if (!state) {
         m_ui->useHardwareKeyCheckBox->setChecked(false);
     }
@@ -216,6 +220,11 @@ bool DatabaseOpenWidget::unlockingDatabase()
     return m_unlockingDatabase;
 }
 
+void DatabaseOpenWidget::showMessage(const QString& text, MessageWidget::MessageType type, int autoHideTimeout)
+{
+    m_ui->messageWidget->showMessage(text, type, autoHideTimeout);
+}
+
 void DatabaseOpenWidget::load(const QString& filename)
 {
     clearForms();
@@ -228,6 +237,31 @@ void DatabaseOpenWidget::load(const QString& filename)
     m_db->open(m_filename, nullptr, &error);
 
     m_ui->fileNameLabel->setRawText(m_filename);
+
+    // Set the public name if defined
+    auto label = tr("Unlock KeePassXC Database");
+    if (!m_db->publicName().isEmpty()) {
+        label.append(QString(": %1").arg(m_db->publicName()));
+    }
+    m_ui->labelHeadline->setText(label);
+
+    // Apply the public color to the central unlock stack if defined
+    auto color = m_db->publicColor();
+    if (!color.isEmpty()) {
+        m_ui->centralStack->setStyleSheet(QString("QStackedWidget {border: 4px solid %1}").arg(color));
+    } else {
+        m_ui->centralStack->setStyleSheet("");
+    }
+
+    // Show the database icon if defined
+    auto iconIndex = m_db->publicIcon();
+    if (iconIndex >= 0 && iconIndex < databaseIcons()->count()) {
+        m_ui->dbIconLabel->setPixmap(databaseIcons()->icon(iconIndex, IconSize::Large));
+        m_ui->dbIconLabel->setVisible(true);
+    } else {
+        m_ui->dbIconLabel->setPixmap({});
+        m_ui->dbIconLabel->setVisible(false);
+    }
 
     if (config()->get(Config::RememberLastKeyFiles).toBool()) {
         auto lastKeyFiles = config()->get(Config::LastKeyFiles).toHash();
@@ -253,6 +287,7 @@ void DatabaseOpenWidget::clearForms()
     m_ui->keyFileLineEdit->setShowPassword(false);
     m_ui->keyFileLineEdit->setClearButtonEnabled(true);
     m_ui->hardwareKeyCombo->clear();
+    toggleHardwareKeyComponent(false);
     toggleQuickUnlockScreen();
 
     m_db.reset(new Database(m_filename));
@@ -270,6 +305,11 @@ QString DatabaseOpenWidget::filename()
 
 void DatabaseOpenWidget::enterKey(const QString& pw, const QString& keyFile)
 {
+    if (unlockingDatabase()) {
+        qWarning("Ignoring unlock request for %s because of running unlock action.", qPrintable(m_filename));
+        return;
+    }
+
     m_ui->editPassword->setText(pw);
     m_ui->keyFileLineEdit->setText(keyFile);
     m_blockQuickUnlock = true;
@@ -490,27 +530,26 @@ bool DatabaseOpenWidget::browseKeyFile()
     return true;
 }
 
-void DatabaseOpenWidget::pollHardwareKey(bool manualTrigger)
+void DatabaseOpenWidget::pollHardwareKey(bool manualTrigger, int delay)
 {
     if (m_pollingHardwareKey) {
         return;
     }
 
     m_ui->hardwareKeyCombo->setEnabled(false);
+    m_ui->useHardwareKeyCheckBox->setEnabled(false);
     m_ui->hardwareKeyProgress->setVisible(true);
     m_ui->refreshHardwareKeys->setEnabled(false);
     m_ui->noHardwareKeysFoundLabel->setVisible(false);
     m_pollingHardwareKey = true;
     m_manualHardwareKeyRefresh = manualTrigger;
 
-    // Add a delay, if this is an automatic trigger, to allow the USB device to settle as
-    // the device may not report a valid serial number immediately after plugging in
-    int delay = manualTrigger ? 0 : 500;
     QTimer::singleShot(delay, this, [] { YubiKey::instance()->findValidKeysAsync(); });
 }
 
 void DatabaseOpenWidget::hardwareKeyResponse(bool found)
 {
+    m_ui->useHardwareKeyCheckBox->setEnabled(true);
     m_ui->hardwareKeyProgress->setVisible(false);
     m_ui->refreshHardwareKeys->setEnabled(true);
     m_ui->hardwareKeyCombo->clear();
