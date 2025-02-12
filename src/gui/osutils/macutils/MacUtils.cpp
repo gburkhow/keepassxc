@@ -130,6 +130,8 @@ void MacUtils::setLaunchAtStartup(bool enable)
     if (enable) {
         QSettings agent(getLaunchAgentFilename(), QSettings::NativeFormat);
         agent.setValue("Label", qApp->property("KPXC_QUALIFIED_APPNAME").toString());
+        agent.setValue("AssociatedBundleIdentifiers", qApp->property("KPXC_QUALIFIED_APPNAME").toString());
+        agent.setValue("Program", QApplication::applicationFilePath());
         agent.setValue("ProgramArguments", QStringList() << QApplication::applicationFilePath());
         agent.setValue("RunAtLoad", true);
         agent.setValue("StandardErrorPath", "/dev/null");
@@ -146,6 +148,15 @@ bool MacUtils::isCapslockEnabled()
 #else
     return false;
 #endif
+}
+
+void MacUtils::setUserInputProtection(bool enable)
+{
+    if (enable) {
+        EnableSecureEventInput();
+    } else {
+        DisableSecureEventInput();
+    }
 }
 
 /**

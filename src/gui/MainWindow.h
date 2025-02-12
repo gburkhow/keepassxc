@@ -1,6 +1,6 @@
 /*
+ *  Copyright (C) 2024 KeePassXC Team <team@keepassxc.org>
  *  Copyright (C) 2010 Felix Geyer <debfx@fobos.de>
- *  Copyright (C) 2020 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -67,6 +67,7 @@ signals:
     void databaseUnlocked(DatabaseWidget* dbWidget);
     void databaseLocked(DatabaseWidget* dbWidget);
     void activeDatabaseChanged(DatabaseWidget* dbWidget);
+    void databaseUnlockDialogFinished(bool accepted, DatabaseWidget* dbWidget);
 
 public slots:
     void openDatabase(const QString& filePath, const QString& password = {}, const QString& keyfile = {});
@@ -106,7 +107,7 @@ protected:
     bool focusNextPrevChild(bool next) override;
 
 private slots:
-    void setMenuActionState(DatabaseWidget::Mode mode = DatabaseWidget::Mode::None);
+    void updateMenuActionState();
     void updateToolbarSeparatorVisibility();
     void updateWindowTitle();
     void showAboutDialog();
@@ -154,6 +155,7 @@ private slots:
     void focusSearchWidget();
     void enableMenuAndToolbar();
     void disableMenuAndToolbar();
+    void clearSSHAgent();
 
 private:
     static const QString BaseWindowTitle;
@@ -206,7 +208,6 @@ private:
     friend class MainWindowEventFilter;
 };
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
 class MainWindowEventFilter : public QObject
 {
     Q_OBJECT
@@ -214,8 +215,11 @@ class MainWindowEventFilter : public QObject
 public:
     explicit MainWindowEventFilter(QObject* parent);
     bool eventFilter(QObject* watched, QEvent* event) override;
+
+private:
+    QTimer m_menubarTimer;
+    QTimer m_altCoolDown;
 };
-#endif
 
 /**
  * Return instance of MainWindow created on app load
