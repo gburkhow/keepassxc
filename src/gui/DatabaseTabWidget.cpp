@@ -25,6 +25,7 @@
 #include "core/Tools.h"
 #include "format/CsvExporter.h"
 #include "gui/Clipboard.h"
+#include "gui/DatabaseIcons.h"
 #include "gui/DatabaseOpenDialog.h"
 #include "gui/DatabaseWidget.h"
 #include "gui/DatabaseWidgetStateSync.h"
@@ -35,13 +36,13 @@
 #include "gui/osutils/macutils/MacUtils.h"
 #endif
 #include "gui/wizard/NewDatabaseWizard.h"
-#include "wizard/ImportWizard.h"
 
 DatabaseTabWidget::DatabaseTabWidget(QWidget* parent)
     : QTabWidget(parent)
     , m_dbWidgetStateSync(new DatabaseWidgetStateSync(this))
     , m_dbWidgetPendingLock(nullptr)
     , m_databaseOpenDialog(new DatabaseOpenDialog(this))
+    , m_importWizard(nullptr)
     , m_databaseOpenInProgress(false)
 {
     auto* tabBar = new QTabBar(this);
@@ -255,53 +256,68 @@ void DatabaseTabWidget::addDatabaseTab(DatabaseWidget* dbWidget, bool inBackgrou
             &DatabaseTabWidget::unlockDatabaseInDialogForSync);
 }
 
-DatabaseWidget* DatabaseTabWidget::importFile()
+void DatabaseTabWidget::importFile()
 {
     // Show the import wizard
-    QScopedPointer wizard(new ImportWizard(this));
-    if (!wizard->exec()) {
-        return nullptr;
-    }
+    m_importWizard = new ImportWizard(this);
 
-    auto db = wizard->database();
-    if (!db) {
-        // Import wizard was cancelled
-        return nullptr;
-    }
-
-    auto importInto = wizard->importInto();
-    if (importInto.first.isNull()) {
-        // Start the new database wizard with the imported database
-        auto newDb = execNewDatabaseWizard();
-        if (newDb) {
-            // Merge the imported db into the new one
-            Merger merger(db.data(), newDb.data());
-            merger.setSkipDatabaseCustomData(true);
-            merger.merge();
-            // Show the new database
-            auto dbWidget = new DatabaseWidget(newDb, this);
-            addDatabaseTab(dbWidget);
-            newDb->markAsModified();
-            return dbWidget;
+    connect(m_importWizard.data(), &QWizard::finished, [&](int result) {
+        if (result != QDialog::Accepted) {
+            return;
         }
-    } else {
-        for (int i = 0, c = count(); i < c; ++i) {
-            // Find the database and group to import into based on import wizard choice
-            auto dbWidget = databaseWidgetFromIndex(i);
-            if (!dbWidget->isLocked() && dbWidget->database()->uuid() == importInto.first) {
-                auto group = dbWidget->database()->rootGroup()->findGroupByUuid(importInto.second);
-                if (group) {
-                    // Extract the root group from the import database
-                    auto importGroup = db->setRootGroup(new Group());
-                    importGroup->setParent(group);
-                    setCurrentIndex(i);
-                    return dbWidget;
+
+        auto db = m_importWizard->database();
+        if (!db) {
+            // Import wizard was cancelled
+            return;
+        }
+
+        switch (m_importWizard->importIntoType()) {
+        case ImportWizard::EXISTING_DATABASE:
+            for (int i = 0, c = count(); i < c; ++i) {
+                auto importInto = m_importWizard->importInto();
+                // Find the database and group to import into based on import wizard choice
+                auto dbWidget = databaseWidgetFromIndex(i);
+                if (!dbWidget->isLocked() && dbWidget->database()->uuid() == importInto.first) {
+                    auto group = dbWidget->database()->rootGroup()->findGroupByUuid(importInto.second);
+                    if (group) {
+                        // Extract the root group from the import database
+                        auto importGroup = db->setRootGroup(new Group());
+                        importGroup->setParent(group);
+                        setCurrentIndex(i);
+                        return;
+                    }
                 }
             }
+            break;
+        case ImportWizard::TEMPORARY_DATABASE: {
+            // Use the already created database as temporary database
+            auto dbWidget = new DatabaseWidget(db, this);
+            addDatabaseTab(dbWidget);
+            return;
         }
-    }
+        default:
+            // Start the new database wizard with the imported database
+            auto newDb = execNewDatabaseWizard();
+            if (newDb) {
+                // Merge the imported db into the new one
+                Merger merger(db.data(), newDb.data());
+                merger.setSkipDatabaseCustomData(true);
+                merger.merge();
+                // Transfer the root group data
+                newDb->rootGroup()->setName(db->rootGroup()->name());
+                newDb->rootGroup()->setNotes(db->rootGroup()->notes());
+                // Show the new database
+                auto dbWidget = new DatabaseWidget(newDb, this);
+                addDatabaseTab(dbWidget);
+                newDb->markAsModified();
+                return;
+            }
+        }
+    });
 
-    return nullptr;
+    // use `open` instead of `exec`. `exec` should not be used, see https://doc.qt.io/qt-6/qdialog.html#exec
+    m_importWizard->show();
 }
 
 void DatabaseTabWidget::mergeDatabase()
@@ -537,19 +553,27 @@ bool DatabaseTabWidget::warnOnExport()
     return ans == MessageBox::Yes;
 }
 
+void DatabaseTabWidget::showDatabaseReports(bool state)
+{
+    if (state) {
+        currentDatabaseWidget()->switchToDatabaseReports();
+    } else {
+        currentDatabaseWidget()->switchToMainView();
+    }
+}
+
+void DatabaseTabWidget::showDatabaseSettings(bool state)
+{
+    if (state) {
+        currentDatabaseWidget()->switchToDatabaseSettings();
+    } else {
+        currentDatabaseWidget()->switchToMainView();
+    }
+}
+
 void DatabaseTabWidget::showDatabaseSecurity()
 {
     currentDatabaseWidget()->switchToDatabaseSecurity();
-}
-
-void DatabaseTabWidget::showDatabaseReports()
-{
-    currentDatabaseWidget()->switchToDatabaseReports();
-}
-
-void DatabaseTabWidget::showDatabaseSettings()
-{
-    currentDatabaseWidget()->switchToDatabaseSettings();
 }
 
 #ifdef WITH_XC_BROWSER_PASSKEYS
@@ -652,6 +676,12 @@ void DatabaseTabWidget::updateTabName(int index)
     index = indexOf(dbWidget);
     setTabText(index, tabName(index));
     setTabToolTip(index, dbWidget->displayFilePath());
+    auto iconIndex = dbWidget->database()->publicIcon();
+    if (iconIndex >= 0 && iconIndex < databaseIcons()->count()) {
+        setTabIcon(index, databaseIcons()->icon(iconIndex));
+    } else {
+        setTabIcon(index, {});
+    }
     emit tabNameChanged();
 }
 
@@ -800,6 +830,9 @@ void DatabaseTabWidget::handleDatabaseUnlockDialogFinished(bool accepted, Databa
     if (intent == DatabaseOpenDialog::Intent::AutoType && config()->get(Config::Security_RelockAutoType).toBool()) {
         m_dbWidgetPendingLock = dbWidget;
     }
+
+    // If browser extension requested the unlock make sure cancel is handled
+    m_databaseOpenInProgress = false;
 
     // signal other objects that the dialog finished
     emit databaseUnlockDialogFinished(accepted, dbWidget);

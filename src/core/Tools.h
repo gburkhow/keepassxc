@@ -22,6 +22,7 @@
 #include "core/Global.h"
 
 #include <QDateTime>
+#include <QFileInfo>
 #include <QList>
 #include <QProcessEnvironment>
 #include <QSet>
@@ -114,6 +115,21 @@ namespace Tools
     QVariantMap qo2qvm(const QObject* object, const QStringList& ignoredProperties = {"objectName"});
 
     QString substituteBackupFilePath(QString pattern, const QString& databasePath);
+
+    enum class MimeType : uint8_t
+    {
+        Image,
+        PlainText,
+        Html,
+        Markdown,
+        Unknown
+    };
+
+    MimeType toMimeType(const QString& mimeName);
+    MimeType getMimeType(const QByteArray& data);
+    MimeType getMimeType(const QFileInfo& fileInfo);
+    bool isTextMimeType(MimeType mimeType);
+
 } // namespace Tools
 
 #endif // KEEPASSX_TOOLS_H

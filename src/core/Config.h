@@ -49,6 +49,7 @@ public:
         UseDirectWriteSaves,
         SearchLimitGroup,
         MinimizeOnOpenUrl,
+        OpenURLOnDoubleClick,
         HideWindowOnCopy,
         MinimizeOnCopy,
         MinimizeAfterUnlock,
@@ -59,6 +60,8 @@ public:
         AutoTypeDelay,
         AutoTypeStartDelay,
         AutoTypeHideExpiredEntry,
+        AutoTypeDialogSortColumn,
+        AutoTypeDialogSortOrder,
         GlobalAutoTypeKey,
         GlobalAutoTypeModifiers,
         GlobalAutoTypeRetypeTime,
@@ -77,6 +80,7 @@ public:
         GUI_HideMenubar,
         GUI_HideToolbar,
         GUI_MovableToolbar,
+        GUI_HideGroupPanel,
         GUI_HidePreviewPanel,
         GUI_AlwaysOnTop,
         GUI_ToolButtonStyle,
@@ -94,8 +98,10 @@ public:
         GUI_CompactMode,
         GUI_CheckForUpdates,
         GUI_CheckForUpdatesIncludeBetas,
+        SearchWaitForEnter,
         GUI_ShowExpiredEntriesOnDatabaseUnlock,
         GUI_ShowExpiredEntriesOnDatabaseUnlockOffsetDays,
+        GUI_FontSizeOffset,
 
         GUI_MainWindowGeometry,
         GUI_MainWindowState,
@@ -217,12 +223,14 @@ public:
     void sync();
     void resetToDefaults();
 
+    bool importSettings(const QString& fileName);
+    void exportSettings(const QString& fileName) const;
+
     QList<ShortcutEntry> getShortcuts() const;
     void setShortcuts(const QList<ShortcutEntry>& shortcuts);
 
     static Config* instance();
     static void createConfigFromFile(const QString& configFileName, const QString& localConfigFileName = {});
-    static void createTempFileInstance();
     static bool isPortable();
     static QString portableConfigDir();
 

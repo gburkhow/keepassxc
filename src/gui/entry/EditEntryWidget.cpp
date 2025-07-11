@@ -139,6 +139,47 @@ EditEntryWidget::EditEntryWidget(QWidget* parent)
 
 EditEntryWidget::~EditEntryWidget() = default;
 
+bool EditEntryWidget::switchToPage(Page page)
+{
+    auto index = pageIndex(widgetForPage(page));
+    if (index >= 0) {
+        setCurrentPage(index);
+        return true;
+    }
+    return false;
+}
+
+QWidget* EditEntryWidget::widgetForPage(Page page) const
+{
+    switch (page) {
+    case Page::Main:
+        return m_mainWidget;
+    case Page::Advanced:
+        return m_advancedWidget;
+    case Page::Icon:
+        return m_iconsWidget;
+    case Page::AutoType:
+        return m_autoTypeWidget;
+    case Page::Browser:
+#ifdef WITH_XC_BROWSER
+        return m_browserWidget;
+#else
+        return nullptr;
+#endif
+    case Page::SSHAgent:
+#ifdef WITH_XC_SSHAGENT
+        return m_sshAgentWidget;
+#else
+        return nullptr;
+#endif
+    case Page::Properties:
+        return m_editWidgetProperties;
+    case Page::History:
+        return m_historyWidget;
+    }
+    return nullptr;
+}
+
 void EditEntryWidget::setupMain()
 {
     m_mainUi->setupUi(m_mainWidget);
@@ -565,6 +606,7 @@ void EditEntryWidget::setupSSHAgent()
     connect(m_sshAgentUi->browseButton, &QPushButton::clicked, this, &EditEntryWidget::browsePrivateKey);
     connect(m_sshAgentUi->addToAgentButton, &QPushButton::clicked, this, &EditEntryWidget::addKeyToAgent);
     connect(m_sshAgentUi->removeFromAgentButton, &QPushButton::clicked, this, &EditEntryWidget::removeKeyFromAgent);
+    connect(m_sshAgentUi->clearAgentButton, &QPushButton::clicked, this, &EditEntryWidget::clearAgent);
     connect(m_sshAgentUi->decryptButton, &QPushButton::clicked, this, &EditEntryWidget::decryptPrivateKey);
     connect(m_sshAgentUi->copyToClipboardButton, &QPushButton::clicked, this, &EditEntryWidget::copyPublicKey);
     connect(m_sshAgentUi->generateButton, &QPushButton::clicked, this, &EditEntryWidget::generatePrivateKey);
@@ -678,6 +720,7 @@ void EditEntryWidget::updateSSHAgentKeyInfo()
     if (sshAgent()->isAgentRunning()) {
         m_sshAgentUi->addToAgentButton->setEnabled(true);
         m_sshAgentUi->removeFromAgentButton->setEnabled(true);
+        m_sshAgentUi->clearAgentButton->setEnabled(true);
 
         sshAgent()->setAutoRemoveOnLock(key, m_sshAgentUi->removeKeyFromAgentCheckBox->isChecked());
     }
@@ -778,6 +821,12 @@ void EditEntryWidget::removeKeyFromAgent()
         showMessage(sshAgent()->errorString(), MessageWidget::Error);
         return;
     }
+}
+
+void EditEntryWidget::clearAgent()
+{
+    auto ret = sshAgent()->clearAllAgentIdentities();
+    showMessage(sshAgent()->errorString(), ret ? MessageWidget::Positive : KMessageWidget::Error);
 }
 
 void EditEntryWidget::decryptPrivateKey()
@@ -886,7 +935,7 @@ void EditEntryWidget::loadEntry(Entry* entry,
     setForms(entry);
     setReadOnly(m_history);
 
-    setCurrentPage(0);
+    switchToPage(Page::Main);
     setPageHidden(m_historyWidget, m_history || m_entry->historyItems().count() < 1);
 #ifdef WITH_XC_SSHAGENT
     setPageHidden(m_sshAgentWidget, !sshAgent()->isEnabled());
@@ -913,6 +962,7 @@ void EditEntryWidget::setForms(Entry* entry, bool restore)
     m_mainUi->expireDatePicker->setReadOnly(m_history);
     m_mainUi->revealNotesButton->setIcon(icons()->onOffIcon("password-show", false));
     m_mainUi->revealNotesButton->setVisible(config()->get(Config::Security_HideNotes).toBool());
+    m_mainUi->revealNotesButton->setChecked(false);
     m_mainUi->notesEdit->setReadOnly(m_history);
     m_mainUi->notesEdit->setVisible(!config()->get(Config::Security_HideNotes).toBool());
     if (config()->get(Config::GUI_MonospaceNotes).toBool()) {
@@ -1130,7 +1180,7 @@ bool EditEntryWidget::commitEntry()
                                         MessageBox::Yes | MessageBox::No,
                                         MessageBox::Yes);
         if (res == MessageBox::Yes) {
-            setCurrentPage(3);
+            switchToPage(Page::AutoType);
             return false;
         }
     }
@@ -1145,7 +1195,7 @@ bool EditEntryWidget::commitEntry()
                                      MessageBox::Yes | MessageBox::No,
                                      MessageBox::Yes);
             if (res == MessageBox::Yes) {
-                setCurrentPage(3);
+                switchToPage(Page::AutoType);
                 return false;
             }
         }

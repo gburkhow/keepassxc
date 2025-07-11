@@ -139,9 +139,9 @@ void YubiKeyEditWidget::initComponent()
     m_ui->componentDescription->setText(
         tr("<p>If you own a <a href=\"https://www.yubico.com/\">YubiKey</a> or "
            "<a href=\"https://onlykey.io\">OnlyKey</a>, you can use it for additional security.</p>"
-           "<p>The key requires one of its slots to be programmed as "
-           "<a href=\"https://docs.yubico.com/yesdk/users-manual/application-otp/challenge-response.html\">"
-           "HMAC-SHA1 Challenge-Response</a>.</p>"));
+           "<p>The key requires one of its slots to be programmed with "
+           "<a href=\"https://keepassxc.org/docs/#faq-yubikey-howto\">"
+           "Challenge-Response</a>.</p>"));
 }
 
 void YubiKeyEditWidget::pollYubikey()
@@ -173,7 +173,9 @@ void YubiKeyEditWidget::hardwareKeyResponse(bool found)
 
     if (!found) {
         m_compUi->yubikeyProgress->setVisible(false);
-        m_compUi->comboChallengeResponse->addItem(tr("No hardware keys detected"));
+        m_compUi->comboChallengeResponse->addItem(YubiKey::instance()->connectedKeys() > 0
+                                                      ? tr("Hardware keys found, but no slots are configured")
+                                                      : tr("No hardware keys detected"));
         m_isDetected = false;
         return;
     }

@@ -238,6 +238,8 @@ void ReportsWidgetHealthcheck::loadSettings(QSharedPointer<Database> db)
     auto row = QList<QStandardItem*>();
     row << new QStandardItem(tr("Please wait, health data is being calculated…"));
     m_referencesModel->appendRow(row);
+    // Default sort by first column (health score)
+    m_ui->healthcheckTableView->sortByColumn(0, Qt::AscendingOrder);
 }
 
 void ReportsWidgetHealthcheck::showEvent(QShowEvent* event)
@@ -253,6 +255,11 @@ void ReportsWidgetHealthcheck::showEvent(QShowEvent* event)
 
 void ReportsWidgetHealthcheck::calculateHealth()
 {
+    // Save current sort order before clearing the model so we can restore it later
+    int sortColumn = m_ui->healthcheckTableView->horizontalHeader()->sortIndicatorSection();
+    Qt::SortOrder sortOrder = m_ui->healthcheckTableView->horizontalHeader()->sortIndicatorOrder();
+
+    // Safe to clear
     m_referencesModel->clear();
 
     // Perform the health check
@@ -277,8 +284,10 @@ void ReportsWidgetHealthcheck::calculateHealth()
     } else {
         m_referencesModel->setHorizontalHeaderLabels(QStringList() << tr("") << tr("Title") << tr("Path") << tr("Score")
                                                                    << tr("Reason"));
-        m_ui->healthcheckTableView->sortByColumn(0, Qt::AscendingOrder);
     }
+
+    // Restore sorting options that was stored before the model was cleared
+    m_ui->healthcheckTableView->sortByColumn(sortColumn, sortOrder);
 
     m_ui->healthcheckTableView->resizeColumnsToContents();
     m_ui->healthcheckTableView->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
@@ -323,6 +332,11 @@ void ReportsWidgetHealthcheck::customMenuRequested(QPoint pos)
         });
     }
 
+    // Create the "Expire entry" menu item
+    const auto expEntry = new QAction(icons()->icon("entry-expire"), tr("Expire Entry(s)…", "", selected.size()), this);
+    menu->addAction(expEntry);
+    connect(expEntry, &QAction::triggered, this, &ReportsWidgetHealthcheck::expireSelectedEntries);
+
     // Create the "delete entry" menu item
     const auto delEntry = new QAction(icons()->icon("entry-delete"), tr("Delete Entry(s)…", "", selected.size()), this);
     menu->addAction(delEntry);
@@ -365,7 +379,7 @@ void ReportsWidgetHealthcheck::saveSettings()
     // nothing to do - the tab is passive
 }
 
-void ReportsWidgetHealthcheck::deleteSelectedEntries()
+QList<Entry*> ReportsWidgetHealthcheck::getSelectedEntries()
 {
     QList<Entry*> selectedEntries;
     for (auto index : m_ui->healthcheckTableView->selectionModel()->selectedRows()) {
@@ -375,7 +389,21 @@ void ReportsWidgetHealthcheck::deleteSelectedEntries()
             selectedEntries << entry;
         }
     }
+    return selectedEntries;
+}
 
+void ReportsWidgetHealthcheck::expireSelectedEntries()
+{
+    for (auto entry : getSelectedEntries()) {
+        entry->expireNow();
+    }
+
+    calculateHealth();
+}
+
+void ReportsWidgetHealthcheck::deleteSelectedEntries()
+{
+    QList<Entry*> selectedEntries = getSelectedEntries();
     bool permanent = !m_db->metadata()->recycleBinEnabled();
     if (GuiTools::confirmDeleteEntries(this, selectedEntries, permanent)) {
         GuiTools::deleteEntriesResolveReferences(this, selectedEntries, permanent);
